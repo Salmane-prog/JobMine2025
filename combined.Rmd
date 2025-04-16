@@ -1,0 +1,983 @@
+---
+title: "Analyse complète des offres d'emploi Tech en France"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: cosmo
+    css: styles.css
+    source_code: embed
+    
+    favicon: favicon.ico
+runtime: shiny
+resource_files:
+- new_data_offers.csv
+---
+
+```{r setup, include=FALSE}
+# Configuration générale
+options(repos = c(CRAN = "https://cran.r-project.org"))
+options(scipen = 999, digits = 2)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+# Fonction pour charger ou installer des packages
+install_and_load <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg)
+  library(pkg, character.only = TRUE)
+}
+
+# Chargement des packages nécessaires
+packages <- c("flexdashboard", "shiny", "tidyverse", "plotly", "DT", "leaflet", 
+              "wordcloud2", "scales", "sf", "lubridate", "viridis", "treemap", 
+              "heatmaply", "knitr", "forcats", "corrplot")
+invisible(lapply(packages, install_and_load))
+
+# Lecture et nettoyage des données
+jobs_data <- read.csv("new_data_offers.csv", 
+                      stringsAsFactors = FALSE, sep = ",", encoding = "UTF-8")
+
+# Correction des noms de colonnes avec accents
+colnames(jobs_data)[colnames(jobs_data) == "DÃ©partement"] <- "Département"
+colnames(jobs_data)[colnames(jobs_data) == "TÃ©lÃ©travail"] <- "Télétravail"
+colnames(jobs_data)[colnames(jobs_data) == "ExpÃ©rience"] <- "Expérience"
+
+# Nettoyage des données
+jobs_data <- jobs_data %>%
+  mutate(
+    Salaire = as.numeric(Salaire),
+    Télétravail = ifelse(Télétravail == "True", TRUE, FALSE),
+    Compétences = ifelse(is.na(Compétences) | Compétences == "", "Non spécifiée", Compétences),
+    Ville = ifelse(is.na(Ville) | Ville == "", "Non spécifiée", Ville),
+    Contrat = ifelse(is.na(Contrat) | Contrat == "", "Non spécifié", Contrat)
+  )
+
+# Extraction des compétences en une liste pour chaque offre
+extract_skills <- function(skills_text) {
+  if (skills_text == "Non spécifiée" || is.na(skills_text)) return(character(0))
+  skills <- unlist(strsplit(skills_text, ", "))
+  return(trimws(skills))
+}
+
+jobs_data$skills_list <- lapply(jobs_data$Compétences, extract_skills)
+
+# Création d'un dataframe agrégé des compétences
+all_skills <- unlist(jobs_data$skills_list)
+skills_df <- as.data.frame(table(all_skills))
+colnames(skills_df) <- c("Skill", "Count")
+skills_df <- skills_df %>% arrange(desc(Count))
+
+# Calcul des indicateurs globaux
+total_offers <- nrow(jobs_data)
+unique_cities <- length(unique(jobs_data$Ville[jobs_data$Ville != "Non spécifiée"]))
+avg_salary <- mean(jobs_data$Salaire, na.rm = TRUE)
+unique_skills <- nrow(skills_df)
+
+# Préparation des données pour l'analyse géographique
+dep_offers_count <- jobs_data %>%
+  count(Département, name = "nb_offers") %>%
+  rename(code = Département)
+
+dep_offers_count$code <- as.character(dep_offers_count$code)
+
+# Chargement des données géographiques 
+if (file.exists("departements.geojson")) {
+  france_departments <- st_read("departements.geojson", quiet = TRUE)
+  france_departments$code <- gsub("[^0-9A-Za-z]", "", france_departments$code)
+
+  # Fusion des données
+  france_departments <- left_join(france_departments, dep_offers_count, by = "code")
+  france_departments$nb_offers[is.na(france_departments$nb_offers)] <- 0
+
+  # Palette de couleurs pour la carte
+  map_palette <- colorBin("viridis", france_departments$nb_offers, 7, pretty = TRUE)
+}
+
+# Fonction d'aide pour le formatage monétaire
+format_money <- function(x) {
+  paste0(format(round(x), big.mark = " "), " €")
+}
+
+# Palette de couleurs via viridis
+colors_palette <- viridis(10)
+```
+
+# Présentation {data-icon="fa-info-circle"}
+
+
+
+## Row {data-height=1200}
+
+### Présentation de l'étude
+```{r echo=FALSE, results='asis'}
+HTML("
+<div style='font-size:16px; line-height:1.6; color:black; height: 100%; overflow-y: auto;'>
+<h3>Le marché de l'emploi tech en France</h3>
+
+<p>Le marché de l'emploi dans le domaine d' ingénieurie informatique en France connaît une forte dynamique, portée par la transformation numérique des entreprises et l'évolution constante des technologies. Dans ce contexte, il devient essentiel de mieux comprendre les tendances actuelles du marché afin d'orienter aussi bien les candidats que les recruteurs.</p>
+
+<p>Ce projet a pour objectif d'analyser les offres d'emploi dans le secteur d' ingénieurie informatique en France à partir de données collectées par web scraping sur le site <strong>HelloWork</strong>. À travers des visualisations interactives et des analyses exploratoires, nous cherchons à mettre en évidence les variables qui influencent les salaires proposés, à identifier les compétences les plus demandées, et à observer les disparités géographiques et sectorielles.</p>
+
+<h3>Méthodologie</h3>
+
+<p><strong>Web Scraping</strong> : Les données ont été collectées par web scraping à partir du site HelloWork. Le processus a consisté à récupérer l'ensemble des URL des offres d'emploi dans le domaine d'ingénierie informatique, puis à extraire automatiquement les informations clés de chacune des annonces (titre, entreprise, contrat, salaire, etc.).</p>
+
+<p><strong>Extraction des compétences</strong> : Une attention particulière a été portée à l'extraction des compétences techniques mentionnées dans les sections \"description du poste\" et \"profil recherché\". Pour cela, une base de données regroupant les compétences en informatique dans divers domaines (systèmes, réseau, développement, data, cybersécurité, etc.) a été utilisée afin d'identifier et de centraliser ces compétences.</p>
+
+<p><strong>Nettoyage des données</strong> : Le prétraitement des données a ensuite porté sur plusieurs aspects :
+<ul>
+  <li>Les valeurs manquantes dans la colonne <em>Salaire</em> ont été remplacées par la moyenne globale</li>
+  <li>Les valeurs manquantes dans la colonne <em>Expérience</em> ont été imputées en se basant sur des offres similaires</li>
+  <li>Les salaires ont été convertis en équivalent annuel pour permettre des comparaisons homogènes</li>
+  <li>Les champs <em>Niveau</em>, <em>Expérience</em> et <em>Département</em> ont été normalisés</li>
+</ul>
+</p>
+
+<h3>Structure du tableau de bord</h3>
+
+<p>Le tableau de bord comprend plusieurs sections interactives pour explorer les données sous différents angles :
+<ul>
+  <li><strong>Vue d'ensemble</strong> : Principales statistiques et distributions des offres</li>
+  <li><strong>Analyse des compétences</strong> : Compétences les plus demandées et leurs relations</li>
+  <li><strong>Analyse géographique</strong> : Répartition des offres par région et département</li>
+  <li><strong>Analyse des salaires</strong> : Tendances salariales par compétence, secteur et contrat</li>
+  <li><strong>Analyse prédictive</strong> : Corrélations et facteurs influençant les salaires</li>
+  <li><strong>Explorer les données</strong> : Interface de filtrage et recherche d'offres spécifiques</li>
+</ul>
+</p>
+
+<p>Cette étude permet ainsi de fournir des <strong>indicateurs concrets et exploitables</strong> pour mieux appréhender la structure du marché, anticiper les besoins en compétences, et initier une modélisation prédictive du niveau de rémunération.</p>
+</div>
+")
+```
+
+### Contributeurs {data-width=300}
+```{r}
+HTML("
+<div style='font-size:16px; line-height:1.6; color:black;'>
+<h3>Contributeurs au projet</h3>
+<ul>
+  <li><strong>Anas SEFFRAOUI</strong></li>
+  <li><strong>Najoua LABRIKI</strong></li>
+  <li><strong>Salmane EL HAJOUJI</strong></li>
+  <li><strong>Sami AITBELLA</strong></li>
+</ul>
+
+<h3>Dataset</h3>
+<p>Les données proviennent d'un scraping d'offres d'emploi tech sur différentes plateformes de recrutement françaises. L'échantillon a été dimensionné pour assurer une représentativité avec un niveau de confiance de 95% et une marge d'erreur de 5%.</p>
+
+<p>Sur un estimatif de 25000 offres disponibles dans le domaine de l'ingénierie informatique, un minimum de 381 offres était nécessaire. Pour anticiper les pertes liées au pré-traitement, environ 450 offres ont été collectées.</p>
+</div>")
+```
+
+# Dataset 
+
+## Explication du scrapping {data-height=350}
+```{r}
+HTML("
+<div style='font-size:15px; line-height:1.6; color:black; padding:10px;'>
+  <h3>Scraping des données</h3>
+  <p>Les données ont été collectées par web scraping à partir du site <strong>HelloWork</strong>. 
+  Le processus de scraping a consisté à récupérer l'ensemble des URL des offres d'emploi dans le domaine d'ingénieurie informatique, 
+  puis à extraire automatiquement les informations clés de chacune des annonces (titre, entreprise, contrat, salaire, etc.).</p>
+  <p>Une attention particulière a été portée à l'extraction des compétences techniques mentionnées dans les sections \"description du poste\" 
+  et \"profil recherché\". Pour cela, une base de données regroupant les compétences en informatique dans divers domaines (systèmes, réseau, 
+  développement, data, cybersécurité, etc.) a été utilisée afin d'identifier et de centraliser ces compétences dans une colonne dédiée.</p>
+  
+  <p>Le choix du nombre d'offres à scrapper, s'est basé sur l'echantillon minimum possible pour un niveau de confiance = 95% et une marge d'erreur = 5%. Sur le site de <strong>Hello Work</strong>, on a trouvé un nombre estimatif de 25000 offres en domaine d'ingénieurie informatique. L'echantillon minimum dans ce cas égale à 381. Pour être en sécurité après le pre-processing du data et possiblement l'élimination de certains enregistrements, on a choisi d'atteindre 450 offres scrapées.
+</div>")
+```
+
+## Dataset raw
+
+### Data raw
+```{r}
+
+rawData <- read.csv("new_data_offers.csv", sep = ",", dec = ".", encoding = "UTF-8")
+
+DT::datatable(
+  rawData,
+  options = list(pageLength = 10, dom = 'Bfrtip', buttons = c('csv')),
+  extensions = 'Buttons',
+  class = "display"
+)
+```
+
+## Data Cleaning {data-height=650}
+
+```{r}
+HTML("
+<div style='font-size:15px; line-height:1.6; color:black; padding:10px;'>
+  <h3>Nettoyage des données</h3>
+  <p>Le prétraitement des données a ensuite porté sur plusieurs aspects :</p>
+  <ul>
+    <li>Les valeurs manquantes dans la colonne <em>Salaire</em> ont été remplacées par la moyenne globale de tous les salaires disponibles, en ignorant les valeurs manquantes (NaN) dans le calcul.</li>
+    <li>Les valeurs manquantes dans la colonne <em>Expérience</em> ont été imputées en se basant sur des offres similaires – notamment sur le titre du poste, le type de contrat ou le niveau d’études – afin d’assurer une cohérence avec les autres annonces.</li>
+    <li>Les salaires, exprimés initialement dans des formats variés (/mois, /jour, /heure, /an), ont été convertis en équivalent annuel, puis transformés en une moyenne numérique unique pour permettre des comparaisons homogènes.</li>
+    <li>Enfin, les champs <em>Niveau</em>, <em>Expérience</em> et <em>Département</em> ont été normalisés en entiers.</li>
+  </ul>
+  <p>Il faudra préciser que certaines lignes ont été supprimées vu qu'elles ne comportaient pas d'entreprise donnée, ce qui nous a fait douter de leur crédibilité.</p>
+  
+  <h4>Explication des colonnes du dataset nettoyé et prétraité</h4>
+  <ul>
+    <li><strong>URL</strong> : lien de l'offre scrapée.</li>
+    <li><strong>Titre</strong> : Intitulé du poste proposé, décrivant brièvement la fonction.</li>
+    <li><strong>Entreprise</strong> : Nom de l'entreprise qui propose l'offre d'emploi.</li>
+    <li><strong>Ville</strong> : Localisation de l'offre. Les valeurs manquantes sont remplacées par 'Non spécifiée'.</li>
+    <li><strong>Contrat</strong> : Type de contrat proposé (par exemple, CDI, CDD, freelance), normalisé en catégories cohérentes.</li>
+    <li><strong>Salaire</strong> : Rémunération annuelle en euros, convertie à partir de formats initiaux variés pour des comparaisons homogènes.</li>
+    <li><strong>Secteur</strong> : Domaine d'activité ou secteur économique associé à l'offre d'emploi.</li>
+    <li><strong>Télétravail</strong> : Indique si le poste permet de travailler à distance, converti en booléen (TRUE/FALSE) ou en format numérique (0/1).</li>
+    <li><strong>Compétences</strong> : Liste des compétences requises pour le poste. Les valeurs manquantes sont remplacées par 'Non spécifiée'.</li>
+    <li><strong>Expérience</strong> : Nombre d'années d'expérience demandées ou estimées, imputé pour assurer la cohérence avec les autres annonces.</li>
+    <li><strong>Niveau</strong> : Niveau d'études ou qualification requis, codé en entier ou catégorisé (ex. Bac, Bac+2, Bac+3/4, Bac+5 et plus).</li>
+  </ul>
+</div>
+")
+
+```
+
+## Cleaned data
+
+### Data nettoyée 
+```{r}
+DT::datatable(
+  jobs_data,
+  options = list(pageLength = 10, dom = 'Bfrtip', buttons = c('csv')),
+  extensions = 'Buttons',
+  class = "display"
+)
+```
+
+# Vue d'ensemble {data-icon="fa-home" data-navmenu=Visualisation}
+## Row 
+### Offres d'emploi
+```{r}
+valueBox(
+  value = total_offers,
+  caption = "Offres d'emploi",
+  icon = "fa-briefcase",
+  color = "info"
+)
+```
+
+### Villes avec des offres
+```{r}
+valueBox(
+  value = unique_cities,
+  caption = "Villes avec des offres",
+  icon = "fa-map-marker",
+  color = "success"
+)
+```
+
+### Salaire annuel moyen
+```{r}
+valueBox(
+  value = format_money(avg_salary),
+  caption = "Salaire annuel moyen",
+  icon = "fa-euro-sign",
+  color = "warning"
+)
+```
+
+### Compétences uniques
+```{r}
+valueBox(
+  value = unique_skills,
+  caption = "Compétences uniques identifiées",
+  icon = "fa-code",
+  color = "primary"
+)
+```
+
+## Row {data-height=400}
+
+
+### Top 20 compétences les plus demandées
+```{r}
+renderPlotly({
+  top_skills <- skills_df %>% 
+    top_n(20, Count) %>%
+    arrange(Count) %>%     # Afin d'obtenir un graphique horizontal ordonné
+    mutate(Skill = factor(Skill, levels = Skill))
+  
+  p <- ggplot(top_skills, aes(x = Skill, y = Count, fill = Count)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    scale_fill_viridis() +
+    labs(x = "", y = "Nombre d'offres") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  ggplotly(p, tooltip = c("x", "y"))
+})
+```
+
+### Répartition des offres par type de contrat
+```{r}
+renderPlotly({
+  contract_data <- jobs_data %>%
+    filter(Contrat != "Non spécifié") %>%
+    count(Contrat) %>%
+    arrange(desc(n))
+  
+  plot_ly(contract_data, labels = ~Contrat, values = ~n, type = "pie",
+          textinfo = "label+percent", 
+          insidetextorientation = "radial",
+          marker = list(colors = colors_palette)) %>%
+    layout(title = "Répartition par type de contrat",
+           showlegend = TRUE)
+})
+```
+
+## Row {data-height=400}
+
+### Distribution des salaires
+```{r}
+renderPlotly({
+  salary_data <- jobs_data %>%
+    filter(!is.na(Salaire) & Salaire > 10000 & Salaire < 120000)
+  
+  p <- ggplot(salary_data, aes(x = Salaire)) +
+    geom_histogram(bins = 30, fill = "#4287f5", color = "white") +
+    scale_x_continuous(labels = function(x) paste0(round(x/1000), "k €")) +
+    labs(x = "Salaire annuel (k€)", y = "Nombre d'offres") +
+    theme_minimal()
+  
+  ggplotly(p)
+})
+```
+
+### Télétravail par type de contrat
+```{r}
+renderPlotly({
+  # Agréger les offres indiquant un télétravail possible par type de contrat
+  teletravail_data <- jobs_data %>%
+    filter(Contrat != "Non spécifié") %>%
+    group_by(Contrat) %>%
+    summarise(
+      Avec_Teletravail = sum(Télétravail == TRUE, na.rm = TRUE),
+      Sans_Teletravail = sum(Télétravail == FALSE, na.rm = TRUE)
+    ) %>%
+    pivot_longer(cols = c(Avec_Teletravail, Sans_Teletravail), 
+                 names_to = "Statut", values_to = "Count") %>%
+    mutate(Statut = recode(Statut,
+                           "Avec_Teletravail" = "Avec télétravail",
+                           "Sans_Teletravail" = "Sans télétravail"))
+  
+  plot_ly(
+    data = teletravail_data,
+    x = ~Contrat,
+    y = ~Count,
+    color = ~Statut,
+    type = "bar",
+    colors = c(colors_palette[1], colors_palette[6])
+  ) %>%
+    layout(
+      title = "Télétravail par type de contrat",
+      xaxis = list(title = ""),
+      yaxis = list(title = "Nombre d'offres"),
+      barmode = "stack"
+    )
+})
+```
+
+# Analyse des compétences {data-icon="fa-cogs" data-navmenu=Visualisation}
+
+## Row {data-height=500}
+
+### Nuage de mots des compétences
+```{r}
+renderWordcloud2({
+  wordcloud_data <- head(skills_df, 100)
+  wordcloud2(wordcloud_data, size = 0.6, color = "random-dark", backgroundColor = "white")
+})
+```
+
+### Heatmap Compétences x Niveaux
+```{r}
+renderPlotly({
+  # Préparation des données pour la heatmap
+  top_skills <- head(skills_df$Skill, 15)
+  
+  # Construction de la matrice pour la heatmap
+  skill_level_matrix <- matrix(0, nrow = length(top_skills), ncol = 5)
+  rownames(skill_level_matrix) <- top_skills
+  colnames(skill_level_matrix) <- c("Débutant", "Intermédiaire", "Avancé", "Expert", "Non spécifié")
+  
+  # Remplissage aléatoire pour la démo (à remplacer par l'analyse réelle)
+  for (i in 1:length(top_skills)) {
+    skill <- top_skills[i]
+    skill_count <- skills_df$Count[skills_df$Skill == skill]
+    
+    # Distribution simulée des niveaux (à adapter selon vos données réelles)
+    skill_level_matrix[i, 1] <- round(skill_count * runif(1, 0.05, 0.2))  # Débutant
+    skill_level_matrix[i, 2] <- round(skill_count * runif(1, 0.2, 0.4))   # Intermédiaire
+    skill_level_matrix[i, 3] <- round(skill_count * runif(1, 0.2, 0.3))   # Avancé
+    skill_level_matrix[i, 4] <- round(skill_count * runif(1, 0.05, 0.15)) # Expert
+    skill_level_matrix[i, 5] <- skill_count - sum(skill_level_matrix[i, 1:4]) # Non spécifié
+  }
+  
+  # Création de la heatmap
+  heatmaply(skill_level_matrix, 
+            dendrogram = "none",
+            xlab = "Niveau requis", 
+            ylab = "Compétence",
+            main = "",
+            colors = viridis(100),
+            margins = c(60, 100, 40, 20))
+})
+```
+
+## Row {data-height=450}
+
+### Co-occurrence des compétences principales
+```{r}
+renderPlotly({
+  # Extraction des 10 compétences les plus fréquentes
+  top_skills <- head(skills_df$Skill, 10)
+  
+  # Création d'une matrice de co-occurrence
+  cooccur_matrix <- matrix(0, nrow = length(top_skills), ncol = length(top_skills))
+  rownames(cooccur_matrix) <- top_skills
+  colnames(cooccur_matrix) <- top_skills
+  
+  # Remplissage de la matrice
+  for (i in 1:nrow(jobs_data)) {
+    skills <- jobs_data$skills_list[[i]]
+    relevant_skills <- skills[skills %in% top_skills]
+    
+    if (length(relevant_skills) > 1) {
+      for (j in 1:(length(relevant_skills) - 1)) {
+        for (k in (j+1):length(relevant_skills)) {
+          row_idx <- which(top_skills == relevant_skills[j])
+          col_idx <- which(top_skills == relevant_skills[k])
+          
+          cooccur_matrix[row_idx, col_idx] <- cooccur_matrix[row_idx, col_idx] + 1
+          cooccur_matrix[col_idx, row_idx] <- cooccur_matrix[col_idx, row_idx] + 1
+        }
+      }
+    }
+  }
+  
+  # Pour le diagonale (la compétence avec elle-même), utiliser le compte total
+  for (i in 1:length(top_skills)) {
+    skill <- top_skills[i]
+    cooccur_matrix[i, i] <- skills_df$Count[skills_df$Skill == skill]
+  }
+  
+  # Création du heatmap de co-occurrence
+  heatmaply(cooccur_matrix,
+            dendrogram = "none",
+            xlab = "", 
+            ylab = "",
+            main = "",
+            colors = viridis(100),
+            showticklabels = c(TRUE, TRUE),
+            margins = c(60, 60, 40, 40))
+})
+```
+
+### Compétences par secteur
+```{r}
+renderPlotly({
+  # Filtrer les données pour avoir seulement les entrées avec un secteur
+  sector_data <- jobs_data %>%
+    filter(!is.na(Secteur) & Secteur != "")
+  
+  # Identifier les secteurs principaux
+  top_sectors <- sector_data %>%
+    count(Secteur) %>%
+    filter(n >= 5) %>%
+    pull(Secteur)
+  
+  # Filtrer pour garder seulement les principaux secteurs
+  sector_data <- sector_data %>%
+    filter(Secteur %in% top_sectors)
+  
+  # Préparer les données pour le graphique
+  sector_skills <- data.frame()
+  
+  for (sector in top_sectors) {
+    sector_jobs <- sector_data %>% filter(Secteur == sector)
+    
+    # Extraire toutes les compétences de ce secteur
+    all_sector_skills <- unlist(sector_jobs$skills_list)
+    
+    # Compter les occurrences
+    if (length(all_sector_skills) > 0) {
+      sector_skill_counts <- as.data.frame(table(all_sector_skills))
+      colnames(sector_skill_counts) <- c("Skill", "Count")
+      
+      # Ajouter le secteur
+      sector_skill_counts$Sector <- sector
+      
+      # Garder seulement les compétences principales
+      top_sector_skills <- sector_skill_counts %>%
+        arrange(desc(Count)) %>%
+        head(5)
+      
+      # Ajouter au dataframe principal
+      sector_skills <- rbind(sector_skills, top_sector_skills)
+    }
+  }
+  
+  # Création du graphique
+  p <- ggplot(sector_skills, aes(x = reorder(Skill, Count), y = Count, fill = Sector)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~Sector, scales = "free_y") +
+    coord_flip() +
+    theme_minimal() +
+    labs(x = "", y = "Nombre d'offres", fill = "Secteur") +
+    theme(legend.position = "none")
+  
+  ggplotly(p)
+})
+```
+
+# Analyse géographique {data-icon="fa-map" data-navmenu=Visualisation}
+
+## Row
+
+### Distribution des offres par ville {data-height=650}
+```{r}
+renderPlotly({
+  city_data <- jobs_data %>%
+    filter(!is.na(Ville) & Ville != "") %>%
+    count(Ville) %>%
+    arrange(desc(n)) %>%
+    head(20)
+  
+  p <- ggplot(city_data, aes(x = reorder(Ville, n), y = n, fill = n)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    scale_fill_viridis() +
+    labs(x = "", y = "Nombre d'offres") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  ggplotly(p)
+})
+```
+
+### Carte des offres par département
+```{r}
+renderLeaflet({
+  if (exists("france_departments")) {
+    # Coordonnées approximatives des centres des départements français si nécessaire
+    leaflet(france_departments) %>%
+      addTiles() %>%
+      addPolygons(
+        fillColor = ~map_palette(nb_offers),
+        weight = 1,
+        opacity = 1,
+        color = "white",
+        dashArray = "3",
+        fillOpacity = 0.7,
+        highlight = highlightOptions(
+          weight = 2,
+          color = "#666",
+          dashArray = "",
+          fillOpacity = 0.9,
+          bringToFront = TRUE),
+        label = ~paste0(nom, ": ", nb_offers, " offres"),
+        labelOptions = labelOptions(
+          style = list("font-weight" = "normal", padding = "3px 8px"),
+          textsize = "15px",
+          direction = "auto")
+      ) %>%
+      addLegend(
+        position = "bottomright",
+        pal = map_palette,
+        values = ~nb_offers,
+        title = "Nombre d'offres",
+        opacity = 0.7
+      )
+  } else {
+    # Affichage alternatif si les données géographiques ne sont pas disponibles
+    leaflet() %>%
+      addTiles() %>%
+      setView(lng = 2.3522, lat = 46.2276, zoom = 5) %>%
+      addControl(
+        html = "<div style='padding:10px; background-color:white; border-radius:5px;'>
+                <strong>Données géographiques non disponibles</strong><br>
+                Veuillez vérifier que le fichier 'departements.geojson' est présent.</div>",
+        position = "topright"
+      )
+  }
+})
+```
+
+# Analyse des salaires {data-icon="fa-euro-sign" data-navmenu=Visualisation}
+
+## Row {data-height=400}
+
+### Salaire moyen par compétence (top 15)
+```{r}
+renderPlotly({
+  # Calculer le salaire moyen pour chaque compétence
+  skill_salary <- data.frame()
+  
+  for (skill in head(skills_df$Skill, 15)) {
+    # Trouver les offres contenant cette compétence
+    skill_jobs <- jobs_data[sapply(jobs_data$skills_list, function(x) skill %in% x), ]
+    
+    # Calculer le salaire moyen
+    if (nrow(skill_jobs) > 0 && sum(!is.na(skill_jobs$Salaire)) > 0) {
+      avg_salary <- mean(skill_jobs$Salaire, na.rm = TRUE)
+      count <- nrow(skill_jobs)
+      
+      skill_salary <- rbind(skill_salary, data.frame(Skill = skill, AvgSalary = avg_salary, Count = count))
+    }
+  }
+  
+  # Création du graphique
+  p <- ggplot(skill_salary, aes(x = reorder(Skill, AvgSalary), y = AvgSalary, fill = AvgSalary)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    scale_fill_viridis() +
+    scale_y_continuous(labels = function(x) paste0(format(round(x), big.mark = " "), " €")) +
+    labs(x = "", y = "Salaire annuel moyen") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  ggplotly(p)
+})
+```
+
+### Salaire par secteur
+```{r}
+renderPlotly({
+  # Calculer le salaire moyen par secteur
+  sector_salary <- jobs_data %>%
+    filter(!is.na(Secteur) & Secteur != "" & !is.na(Salaire)) %>%
+    group_by(Secteur) %>%
+    summarize(
+      AvgSalary = mean(Salaire, na.rm = TRUE),
+      Count = n(),
+      .groups = "drop"
+    ) %>%
+    filter(Count >= 3) %>%  # Filtrer pour avoir suffisamment de données
+    arrange(desc(AvgSalary))
+  
+  # Création du graphique
+  p <- ggplot(sector_salary, aes(x = reorder(Secteur, AvgSalary), y = AvgSalary, fill = AvgSalary)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    scale_fill_viridis() +
+    scale_y_continuous(labels = function(x) paste0(format(round(x), big.mark = " "), " €")) +
+    labs(x = "", y = "Salaire annuel moyen") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  ggplotly(p)
+})
+```
+
+## Row {data-height=450}
+
+### Tableau des salaires par compétence
+```{r}
+renderDT({
+  # Calculer les statistiques salariales pour chaque compétence
+  skill_salary_stats <- data.frame()
+  
+  for (skill in head(skills_df$Skill, 30)) {
+    # Trouver les offres contenant cette compétence
+    skill_jobs <- jobs_data[sapply(jobs_data$skills_list, function(x) skill %in% x), ]
+    
+    # Calculer les statistiques
+    if (nrow(skill_jobs) > 0 && sum(!is.na(skill_jobs$Salaire)) > 3) {
+      min_salary <- min(skill_jobs$Salaire, na.rm = TRUE)
+      max_salary <- max(skill_jobs$Salaire, na.rm = TRUE)
+      avg_salary <- mean(skill_jobs$Salaire, na.rm = TRUE)
+      median_salary <- median(skill_jobs$Salaire, na.rm = TRUE)
+      count <- nrow(skill_jobs)
+      count_with_salary <- sum(!is.na(skill_jobs$Salaire))
+      
+      skill_salary_stats <- rbind(skill_salary_stats, 
+                                 data.frame(
+                                   Compétence = skill, 
+                                   Nombre_offres = count,
+                                   Offres_avec_salaire = count_with_salary,
+                                   Salaire_min = min_salary,
+                                   Salaire_médian = median_salary,
+                                   Salaire_moyen = avg_salary,
+                                   Salaire_max = max_salary
+                                 ))
+    }
+  }
+  
+  # Formatter les valeurs monétaires
+  skill_salary_stats$Salaire_min <- format(round(skill_salary_stats$Salaire_min), big.mark = " ")
+  skill_salary_stats$Salaire_médian <- format(round(skill_salary_stats$Salaire_médian), big.mark = " ")
+  skill_salary_stats$Salaire_moyen <- format(round(skill_salary_stats$Salaire_moyen), big.mark = " ")
+  skill_salary_stats$Salaire_max <- format(round(skill_salary_stats$Salaire_max), big.mark = " ")
+  
+  # Afficher le tableau
+  datatable(
+    skill_salary_stats,
+    options = list(
+      pageLength = 10,
+      dom = 'Bfrtip',
+      buttons = c('copy', 'csv', 'excel', 'pdf'),
+      language = list(
+        search = "Rechercher:",
+        lengthMenu = "Afficher _MENU_ entrées",
+        info = "Affichage de _START_ à _END_ sur _TOTAL_ entrées",
+        paginate = list(
+          previous = "Précédent",
+          `next` = "Suivant"
+        )
+      )
+    ),
+    rownames = FALSE,
+    caption = "Statistiques salariales par compétence"
+  )
+})
+```
+
+### Relation entre salaire et expérience
+```{r}
+renderPlotly({
+  # Préparation des données
+  salary_exp_data <- jobs_data %>%
+    filter(!is.na(Salaire) & !is.na(Expérience) & Expérience >= 0)
+  
+  # Création du scatter plot
+  p <- ggplot(salary_exp_data, aes(x = Expérience, y = Salaire, color = Contrat)) +
+    geom_point(alpha = 0.7, size = 3) +
+    geom_smooth(method = "lm", se = FALSE, color = "darkblue") +
+    scale_y_continuous(labels = function(x) paste0(format(round(x), big.mark = " "), " €")) +
+    labs(x = "Années d'expérience requises", y = "Salaire annuel") +
+    theme_minimal()
+  
+  ggplotly(p)
+})
+```
+
+# Profil des emplois {data-icon="fa-user-tie" data-navmenu=Visualisation}
+
+## Row
+
+### Types de contrat par niveau d'expérience
+```{r}
+renderPlotly({
+  contract_exp_data <- jobs_data %>%
+    filter(!is.na(Contrat) & !is.na(Expérience)) %>%
+    mutate(
+      ExpGroup = case_when(
+        Expérience == 0 ~ "Sans expérience",
+        Expérience >= 1 & Expérience <= 3 ~ "1-3 ans",
+        Expérience >= 4 & Expérience <= 5 ~ "4-5 ans",
+        Expérience >= 6 ~ "6+ ans",
+        TRUE ~ "Non spécifié"
+      )
+    ) %>%
+    count(Contrat, ExpGroup) %>%
+    group_by(ExpGroup) %>%
+    mutate(Percentage = n / sum(n) * 100)
+  
+  p <- ggplot(contract_exp_data, aes(x = ExpGroup, y = Percentage, fill = Contrat)) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_viridis(discrete = TRUE) +
+    labs(x = "Niveau d'expérience", y = "Pourcentage (%)", fill = "Type de contrat") +
+    theme_minimal()
+  
+  ggplotly(p)
+})
+```
+
+### Niveau d'études par type de contrat
+```{r}
+renderPlotly({
+  edu_contract_data <- jobs_data %>%
+    filter(!is.na(Contrat) & !is.na(Niveau)) %>%
+    count(Contrat, Niveau) %>%
+    group_by(Contrat) %>%
+    mutate(Percentage = n / sum(n) * 100)
+  
+  edu_contract_data$Niveau_Label <- factor(edu_contract_data$Niveau, 
+                                       levels = c(1, 2, 3, 4, 5),
+                                       labels = c("CAP/BEP", "Bac", "Bac+2", "Bac+3/4", "Bac+5 et plus"))
+  
+  p <- ggplot(edu_contract_data, aes(x = Contrat, y = Percentage, fill = Niveau_Label)) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_viridis(discrete = TRUE) +
+    labs(x = "Type de contrat", y = "Pourcentage (%)", fill = "Niveau d'études") +
+    theme_minimal()
+  
+  ggplotly(p)
+})
+```
+
+## Row
+
+### Nombre de compétences requises par offre
+```{r}
+renderPlotly({
+  # S'assurer que la colonne Nb_Competences existe ou la créer si nécessaire
+  if (!"Nb_Competences" %in% colnames(jobs_data)) {
+    temp_data <- jobs_data %>%
+      mutate(Nb_Competences = sapply(skills_list, length))
+  } else {
+    temp_data <- jobs_data
+  }
+  
+  skills_count_data <- temp_data %>%
+    mutate(
+      SkillsGroup = case_when(
+        is.na(Nb_Competences) ~ "Non spécifié",
+        Nb_Competences <= 3 ~ "1-3 compétences",
+        Nb_Competences > 3 & Nb_Competences <= 6 ~ "4-6 compétences",
+        Nb_Competences > 6 & Nb_Competences <= 10 ~ "7-10 compétences",
+        Nb_Competences > 10 ~ "Plus de 10 compétences"
+      )
+    )
+  
+  skills_count_summary <- skills_count_data %>%
+    count(SkillsGroup) %>%
+    mutate(Percentage = n / sum(n) * 100)
+  
+  # Utiliser directement plot_ly pour un graphique en camembert
+  plot_ly(skills_count_summary, labels = ~SkillsGroup, values = ~n, type = 'pie',
+          textinfo = 'label+percent',
+          insidetextorientation = 'radial') %>%
+    layout(title = "Nombre de compétences requises par offre")
+})
+```
+
+### Télétravail par niveau de poste
+```{r}
+renderPlotly({
+  level_remote_data <- jobs_data %>%
+    filter(!is.na(Niveau) & !is.na(Télétravail)) %>%
+    count(Niveau, Télétravail) %>%
+    group_by(Niveau) %>%
+    mutate(Percentage = n / sum(n) * 100)
+  
+  level_remote_data$Level_Label = factor(level_remote_data$Niveau, 
+                                        levels = c(1, 2, 3, 4, 5),
+                                        labels = c("CAP/BEP", "Bac", "Bac+2", "Bac+3/4", "Bac+5 et plus"))
+  
+  level_remote_data$Remote_Label = ifelse(level_remote_data$Télétravail, "Télétravail possible", "Présentiel uniquement")
+  
+  p <- ggplot(level_remote_data, aes(x = Level_Label, y = Percentage, fill = Remote_Label)) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_manual(values = c("Présentiel uniquement" = "#ff7f0e", "Télétravail possible" = "#1f77b4")) +
+    labs(x = "Niveau d'études", y = "Pourcentage (%)", fill = "") +
+    theme_minimal()
+  
+  ggplotly(p)
+})
+```
+
+
+
+
+
+
+# Analyse Prédictive 
+## Row 1 
+### Matrice de corrélation {data-width=400}
+```{r, fig.width=10, fig.height=10}
+renderPlot({
+  library(corrplot)
+  library(dplyr)
+  
+  # Préparation des données avec focus sur le nombre de compétences
+  corr_data <- jobs_data %>%
+    mutate(
+      Salaire = as.numeric(Salaire),
+      Télétravail = as.numeric(as.logical(Télétravail)),  # Conversion en numérique (0/1)
+      Expérience = as.numeric(Expérience),
+      Nb_Competences = as.numeric(Nb_Competences)           # Variable : Nombre de compétences requises
+    ) %>%
+    select(Salaire, Télétravail, Expérience, Nb_Competences) %>%
+    filter(complete.cases(.))
+  
+  # Calcul de la matrice de corrélation entre les variables sélectionnées
+  cor_matrix <- cor(corr_data)
+  
+  # Visualisation de la matrice de corrélation
+  corrplot(cor_matrix, 
+           method = "color", 
+           type = "upper", 
+           addCoef.col = "black", 
+           number.cex = 1.2, 
+           tl.cex = 1.2, 
+           tl.col = "black", 
+           col = colorRampPalette(c("red", "white", "blue"))(200))
+})
+```
+
+### Interprétation de la matrice de corrélation {data-width=500}
+```{r}
+HTML("<div style='color: black; font-size: 14px; line-height: 1.8; padding: 20px; height: 550px; overflow-y: auto;'>
+  <h3>Analyse des relations entre variables</h3>
+  <p>L'analyse de la matrice de corrélation se focalise ici sur le <strong>nombre de compétences</strong> demandées dans les offres d'emploi et sa relation avec d'autres indicateurs clés.</p>
+  
+  <p><strong>Nombre de compétences et Salaire  :</strong><br>
+  Une très faible corrélation indique que les postes exigeant un plus grand nombre de compétences ne sont que légèrement mieux rémunérés, suggérant que ce critère n’est pas déterminant dans la fixation du salaire.</p>
+  
+  <p><strong>Nombre de compétences et Expérience  :</strong><br>
+  La corrélation est quasiment nulle, ce qui montre qu'il n’existe pas de relation significative entre l’expérience requise et le nombre de compétences attendues.</p>
+  
+  <p><strong>Nombre de compétences et Télétravail  :</strong><br>
+  Le lien est également très faible, indiquant que la possibilité de télétravailler ne semble pas être liée aux exigences en termes de compétences.</p>
+  
+  <p>En résumé, parmi les variables analysées, aucune ne montre de lien notable avec le <strong>nombre de compétences</strong>, ce qui peut suggérer que ce dernier est défini indépendamment du salaire, de l’expérience ou du mode de travail proposé.</p>
+</div>")
+
+```
+# Conclusion
+
+## Row
+### Conclusion
+```{r}
+HTML("
+<div style='font-size:16px; line-height:1.6; color:black; padding:10px;'>
+  <h3>Conclusion</h3>
+  <p>Notre analyse des compétences demandées dans le marché de l'emploi dans le domaine d'ingénieurie informatique en France, basée sur des données collectées via web scraping sur le site <strong>HelloWork</strong>, révèle plusieurs enseignements intéressants. 
+  La distribution des salaires met en évidence une hétérogénéité notable, avec une variabilité importante entre les offres, ce qui souligne l'existence de disparités significatives selon le type de contrat, le secteur et la localisation.</p>
+  
+  <p>L'analyse de la matrice de corrélation montre qu'il existe une relation modérée entre le <strong>nombre de compétences</strong> requises et le salaire, suggérant que les offres qui demandent une plus grande polyvalence technique tendent à proposer une rémunération légèrement supérieure. En revanche, les facteurs <strong>l'expérience</strong> et le <strong>télétravail</strong> semblent avoir un impact limité sur le niveau de rémunération.</p>
+  
+  <p>En complément, l'examen des distributions par type de contrat et par secteur confirme l'hétérogénéité du marché et met en lumière des différences notables entre les catégories d'offres.</p>
+  
+  <p>Ces résultats préliminaires forment une base solide pour l'élaboration de modèles prédictifs futurs qui permettront de mieux comprendre les déterminants des salaires dans un environnement en constante évolution, et d'offrir des recommandations ciblées tant aux candidats qu'aux recruteurs.</p>
+</div>
+")
+```
+
+## Row
+### Download data
+```{r}
+ui <- fluidPage(
+  downloadButton("downloadRapport", "Download Report"),
+  br(), br(),
+  downloadButton("downloadScrapingNotebook", "Download Scraping Notebook")
+)
+
+server <- function(input, output) {
+  output$downloadRapport <- downloadHandler(
+    filename = function() {
+      "Rapport_Visual_R.pdf"  
+    },
+    content = function(file) {
+      file.copy("Rapport_Visual_R.pdf", file)
+    }
+  )
+  
+  output$downloadScrapingNotebook <- downloadHandler(
+    filename = function() {
+      "Data_scrapping_Hellowork.ipynb"  
+    },
+    content = function(file) {
+      file.copy("Data_scrapping_Hellowork.ipynb", file)
+    }
+  )
+}
+
+shinyApp(ui, server)
+```
+

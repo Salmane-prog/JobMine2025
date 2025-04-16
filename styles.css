@@ -1,0 +1,310 @@
+/* Styles généraux */
+body {
+  font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
+  color: #333;
+  background-color: #f8f9fa;
+}
+
+/* En-tête et titres */
+h1, h2, h3, h4, h5 {
+  font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+h3 {
+  border-bottom: 2px solid #e9ecef;
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+}
+
+/* Mise en page */
+.section {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+/* ValueBoxes - AVEC DÉGRADÉ BLEU */
+.value-box {
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s;
+}
+
+.value-box:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+}
+
+.value-box .value {
+  font-weight: 700;
+  font-size: 32px;
+  color: white !important; /* Texte en blanc */
+}
+
+.value-box .caption {
+  color: white !important; /* Légende en blanc */
+}
+
+/* Icônes en blanc */
+.value-box .fa, .value-box .glyphicon {
+  color: white !important;
+  opacity: 0.9;
+}
+
+/* Définition des différentes teintes de bleu pour les value boxes */
+/* Première value box (la plus à gauche) - bleu très foncé */
+.value-box:nth-of-type(1) {
+  background-color: #1a2942 !important;
+}
+
+/* Deuxième value box */
+.value-box:nth-of-type(2) {
+  background-color: #2c4167 !important;
+}
+
+/* Troisième value box */
+.value-box:nth-of-type(3) {
+  background-color: #3d5a8c !important;
+}
+
+/* Quatrième value box */
+.value-box:nth-of-type(4) {
+  background-color: #5273b3 !important;
+}
+
+/* Cinquième value box (la plus à droite) - bleu clair */
+.value-box:nth-of-type(5) {
+  background-color: #6a8fd8 !important;
+}
+
+/* Surcharge des classes bg-* pour s'assurer que nos couleurs sont appliquées */
+.bg-primary, .bg-info, .bg-success, .bg-warning {
+  background-image: none !important; /* Supprime tout gradient existant */
+  color: white !important;
+}
+
+/* Adaptation pour les boutons dans les boxes */
+.value-box .icon-large {
+  opacity: 0.7; /* Augmenter légèrement l'opacité pour la visibilité sur fond foncé */
+}
+
+/* Tableaux */
+.dataTables_wrapper {
+  padding: 0;
+  background-color: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+table.dataTable {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+table.dataTable thead th {
+  background-color: #f1f5f9;
+  color: #334155;
+  border-bottom: 2px solid #e2e8f0;
+  padding: 12px 18px;
+  font-weight: 600;
+}
+
+table.dataTable tbody td {
+  padding: 10px 18px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+table.dataTable tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+/* Graphiques */
+.plotly {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+/* Cartes */
+.leaflet-container {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+/* Nuage de mots */
+#wordcloud2 svg {
+  border-radius: 8px;
+  background-color: white !important;
+}
+
+/* Navigation */
+.navbar {
+  background-color: #2c3e50;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-brand {
+  font-weight: 700;
+  color: white !important;
+}
+
+.navbar-default .navbar-nav > li > a {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.navbar-default .navbar-nav > li > a:hover {
+  color: white !important;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.navbar-default .navbar-nav > .active > a, 
+.navbar-default .navbar-nav > .active > a:hover {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+}
+
+/* Sections textuelles */
+div[style*="font-size:16px"] {
+  line-height: 1.7;
+  text-align: justify;
+}
+
+div[style*="font-size:16px"] p {
+  margin-bottom: 16px;
+}
+
+div[style*="font-size:16px"] ul {
+  margin-bottom: 16px;
+  padding-left: 20px;
+}
+
+div[style*="font-size:16px"] li {
+  margin-bottom: 8px;
+}
+
+/* Personnalisation pour les éléments Shiny */
+.shiny-input-container {
+  margin-bottom: 15px;
+}
+
+.selectize-control.single .selectize-input {
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  padding: 8px 12px;
+}
+
+/* Amélioration de l'affichage des graphiques interactifs */
+.js-plotly-plot {
+  margin-bottom: 0 !important;
+}
+
+/* Correction pour l'affichage des légendes */
+.legend text {
+  font-family: 'Roboto', sans-serif !important;
+}
+
+/* Responsive design adjustments */
+@media (max-width: 768px) {
+  .value-box .value {
+    font-size: 24px;
+  }
+  
+  table.dataTable thead th,
+  table.dataTable tbody td {
+    padding: 8px 10px;
+  }
+}
+
+/* Amélioration des boutons */
+.btn {
+  border-radius: 4px;
+  font-weight: 500;
+  padding: 6px 12px;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background-color: #3498db;
+  border-color: #2980b9;
+}
+
+.btn-primary:hover {
+  background-color: #2980b9;
+}
+
+/* Correction pour les cartes des départements */
+.info.legend {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+}
+
+/* Animation de chargement plus élégante */
+.shiny-spinner-output-container {
+  margin-top: 20px;
+}
+
+.shiny-spinner .spinner {
+  border-color: #3498db;
+}
+
+/* Amélioration de l'affichage des tableaux de données */
+.dataTables_info,
+.dataTables_paginate {
+  margin-top: 10px;
+  padding: 10px;
+}
+
+.dataTables_paginate .paginate_button {
+  border-radius: 4px !important;
+  margin: 0 2px;
+}
+
+.dataTables_paginate .paginate_button.current {
+  background: #3498db !important;
+  border-color: #2980b9 !important;
+  color: white !important;
+}
+
+/* Amélioration des filtres et recherche */
+.dataTables_filter input {
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+
+/* Perfectionner les tabbox */
+.nav-tabs {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.nav-tabs > li > a {
+  border-radius: 4px 4px 0 0;
+  color: #64748b;
+}
+
+.nav-tabs > li.active > a {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+/* Page de présentation */
+#section-présentation {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+/* Animations de transition */
+.tab-content > .tab-pane {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
